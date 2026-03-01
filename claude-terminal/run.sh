@@ -24,25 +24,13 @@ init_environment() {
     # Set permissions
     chmod 755 "$data_home" "$config_dir" "$cache_dir" "$state_dir" "$claude_config_dir"
 
-    # Ensure Claude native binary is available at $HOME/.local/bin/claude
-    # The native installer places it at /root/.local/bin/claude during Docker build,
-    # but at runtime HOME=/data/home, so Claude's self-check looks in /data/home/.local/bin/
-    local native_bin_dir="$data_home/.local/bin"
-    if [ ! -d "$native_bin_dir" ]; then
-        mkdir -p "$native_bin_dir"
-    fi
-    if [ -f /root/.local/bin/claude ] && [ ! -f "$native_bin_dir/claude" ]; then
-        ln -sf /root/.local/bin/claude "$native_bin_dir/claude"
-        bashio::log.info "  - Claude native binary linked: $native_bin_dir/claude"
-    fi
-
     # Set XDG and application environment variables
     export HOME="$data_home"
     export XDG_CONFIG_HOME="$config_dir"
     export XDG_CACHE_HOME="$cache_dir"
     export XDG_STATE_HOME="$state_dir"
     export XDG_DATA_HOME="/data/.local/share"
-    
+
     # Claude-specific environment variables
     export ANTHROPIC_CONFIG_DIR="$claude_config_dir"
     export ANTHROPIC_HOME="/data"
@@ -74,7 +62,7 @@ migrate_legacy_auth_files() {
     # Check common legacy locations
     local legacy_locations=(
         "/root/.config/anthropic"
-        "/root/.anthropic" 
+        "/root/.anthropic"
         "/config/claude-config"
         "/tmp/claude-config"
     )
@@ -82,19 +70,19 @@ migrate_legacy_auth_files() {
     for legacy_path in "${legacy_locations[@]}"; do
         if [ -d "$legacy_path" ] && [ "$(ls -A "$legacy_path" 2>/dev/null)" ]; then
             bashio::log.info "Migrating auth files from: $legacy_path"
-            
+
             # Copy files to new location
             if cp -r "$legacy_path"/* "$target_dir/" 2>/dev/null; then
                 # Set proper permissions
                 find "$target_dir" -type f -exec chmod 600 {} \;
-                
+
                 # Create compatibility symlink if this is a standard location
                 if [[ "$legacy_path" == "/root/.config/anthropic" ]] || [[ "$legacy_path" == "/root/.anthropic" ]]; then
                     rm -rf "$legacy_path"
                     ln -sf "$target_dir" "$legacy_path"
                     bashio::log.info "Created compatibility symlink: $legacy_path -> $target_dir"
                 fi
-                
+
                 migrated=true
                 bashio::log.info "Migration completed from: $legacy_path"
             else
@@ -227,28 +215,22 @@ setup_session_picker() {
     fi
 }
 
-# Legacy monitoring functions removed - using simplified /data approach
-
 # Determine Claude launch command based on configuration
 get_claude_launch_command() {
     local auto_launch_claude
-    
-    # Get configuration value, default to true for backward compatibility
+
     auto_launch_claude=$(bashio::config 'auto_launch_claude' 'true')
-    
-    if [ "$auto_launch_claude" = "true" ]; then                                                                 
-        # Use tmux for session persistence - attach to existing or create new                                   
-        echo "tmux new-session -A -s claude 'claude'"                                                           
-    else                                                                                                        
-        # New behavior: show interactive session picker (also with tmux persistence)                            
-        if [ -f /usr/local/bin/claude-session-picker ]; then                                                    
-            echo "tmux new-session -A -s claude-picker '/usr/local/bin/claude-session-picker'"                  
-        else                                                                                                    
-            # Fallback if session picker is missing                                                             
-            bashio::log.warning "Session picker not found, falling back to auto-launch"                         
-            echo "tmux new-session -A -s claude 'claude'"                                                       
-        fi                                                                                                      
-    fi                 
+
+    if [ "$auto_launch_claude" = "true" ]; then
+        echo "tmux new-session -A -s claude claude"
+    else
+        if [ -f /usr/local/bin/claude-session-picker ]; then
+            echo "tmux new-session -A -s claude-picker /usr/local/bin/claude-session-picker"
+        else
+            bashio::log.warning "Session picker not found, falling back to auto-launch"
+            echo "tmux new-session -A -s claude claude"
+        fi
+    fi
 }
 
 
@@ -256,27 +238,20 @@ get_claude_launch_command() {
 start_web_terminal() {
     local port=7681
     bashio::log.info "Starting web terminal on port ${port}..."
-    
-    # Log environment information for debugging
+
     bashio::log.info "Environment variables:"
     bashio::log.info "ANTHROPIC_CONFIG_DIR=${ANTHROPIC_CONFIG_DIR}"
     bashio::log.info "HOME=${HOME}"
 
-    # Get the appropriate launch command based on configuration
     local launch_command
     launch_command=$(get_claude_launch_command)
-    
-    # Log the configuration being used
+
     local auto_launch_claude
     auto_launch_claude=$(bashio::config 'auto_launch_claude' 'true')
     bashio::log.info "Auto-launch Claude: ${auto_launch_claude}"
-    
-    # Set TTYD environment variable for tmux configuration
-    # This disables tmux mouse mode since ttyd has better mouse handling for web terminals
+
     export TTYD=1
 
-    # Run ttyd with keepalive configuration to prevent WebSocket disconnects
-    # See: https://github.com/heytcass/home-assistant-addons/issues/24
     exec ttyd \
         --port "${port}" \
         --interface 0.0.0.0 \
@@ -301,9 +276,7 @@ run_health_check() {
 main() {
     bashio::log.info "Initializing Claude Terminal add-on..."
 
-    # Run diagnostics first (especially helpful for VirtualBox issues)
     run_health_check
-
     init_environment
     install_tools
     setup_session_picker
@@ -311,5 +284,4 @@ main() {
     start_web_terminal
 }
 
-# Execute main function
 main "$@"
